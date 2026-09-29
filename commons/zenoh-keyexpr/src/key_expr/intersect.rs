@@ -13,10 +13,6 @@
 //
 
 use super::keyexpr;
-use crate::DELIMITER;
-
-mod classical;
-pub use classical::ClassicIntersector;
 
 pub use super::greedy::GreedyIntersector;
 
@@ -79,28 +75,5 @@ impl<
             1 => self.intersect(NoSubWilds(left_bytes), NoSubWilds(right_bytes)),
             _ => self.intersect(left_bytes, right_bytes),
         }
-    }
-}
-
-pub(crate) trait MayHaveVerbatim {
-    fn has_verbatim(&self) -> bool;
-    fn has_direct_verbatim(&self) -> bool;
-    fn has_direct_verbatim_non_empty(&self) -> bool {
-        self.has_direct_verbatim()
-    }
-}
-
-impl MayHaveVerbatim for [u8] {
-    fn has_direct_verbatim(&self) -> bool {
-        matches!(self, [b'@', ..])
-    }
-    fn has_verbatim(&self) -> bool {
-        self.contains(&b'@')
-            && self
-                .split(|c| *c == DELIMITER)
-                .any(MayHaveVerbatim::has_direct_verbatim)
-    }
-    fn has_direct_verbatim_non_empty(&self) -> bool {
-        self.first() == Some(&b'@')
     }
 }

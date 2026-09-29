@@ -22,7 +22,7 @@
 
 use super::{
     include::Includer,
-    intersect::{restriction::NoSubWilds, Intersector, MayHaveVerbatim},
+    intersect::{restriction::NoSubWilds, Intersector},
     utils::Split,
     DELIMITER, DOUBLE_WILD, SINGLE_WILD, STAR_DSL,
 };
@@ -76,6 +76,14 @@ fn has_double_wild(s: &[u8]) -> bool {
     s.contains(&SINGLE_WILD) && s.splitter(&DELIMITER).any(|c| c == DOUBLE_WILD)
 }
 
+fn is_verbatim(chunk: &[u8]) -> bool {
+    chunk.first() == Some(&b'@')
+}
+
+fn has_verbatim(s: &[u8]) -> bool {
+    s.contains(&b'@') && s.splitter(&DELIMITER).any(is_verbatim)
+}
+
 fn next_verbatim(s: &[u8]) -> Option<(&[u8], &[u8], &[u8])> {
     let start = (0..s.len()).find(|&i| s[i] == b'@' && (i == 0 || s[i - 1] == DELIMITER))?;
     let before = s[..start].strip_suffix(&[DELIMITER]).unwrap_or(b"");
@@ -124,7 +132,7 @@ fn chunk_intersect<const DSL: bool>(l: &[u8], r: &[u8]) -> bool {
     step(1);
     match (l, r) {
         _ if l == r => true,
-        _ if l.has_direct_verbatim() || r.has_direct_verbatim() => false,
+        _ if is_verbatim(l) || is_verbatim(r) => false,
         ([SINGLE_WILD], _) | (_, [SINGLE_WILD]) => true,
         _ if DSL && (l.contains(&b'$') || r.contains(&b'$')) => dsl_chunk_intersect(l, r),
         _ => false,
@@ -178,7 +186,7 @@ fn chunk_includes(l: &[u8], r: &[u8]) -> bool {
     if l == r {
         return true;
     }
-    if l.has_direct_verbatim() || r.has_direct_verbatim() {
+    if is_verbatim(l) || is_verbatim(r) {
         return false;
     }
     if l == [SINGLE_WILD] {
@@ -302,7 +310,7 @@ fn strip_ends<'a>(
 
 fn segment_intersect<const DSL: bool, const VERBATIM: bool>(l: &[u8], r: &[u8]) -> bool {
     if let (DOUBLE_WILD, x) | (x, DOUBLE_WILD) = (l, r) {
-        return !VERBATIM || !x.has_verbatim();
+        return !VERBATIM || !has_verbatim(x);
     }
     let Some((l, r)) = strip_ends(l, r, chunk_intersect::<DSL>) else {
         return false;
@@ -328,7 +336,7 @@ fn wrapped_intersect<const DSL: bool>(x: &[u8], y: &[u8]) -> bool {
 
 fn segment_includes<const VERBATIM: bool>(l: &[u8], r: &[u8]) -> bool {
     if l == DOUBLE_WILD {
-        return !VERBATIM || !r.has_verbatim();
+        return !VERBATIM || !has_verbatim(r);
     }
     let Some((l, r)) = strip_ends(l, r, chunk_includes) else {
         return false;

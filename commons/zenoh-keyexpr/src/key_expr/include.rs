@@ -11,7 +11,7 @@
 // Contributors:
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
-use super::{intersect::MayHaveVerbatim, keyexpr, utils::Split, DELIMITER, DOUBLE_WILD, STAR_DSL};
+use super::keyexpr;
 
 pub use super::greedy::GreedyIncluder;
 
@@ -30,77 +30,5 @@ impl<T: for<'a> Includer<&'a [u8], &'a [u8]>> Includer<&keyexpr, &keyexpr> for T
             return true;
         }
         self.includes(left, right)
-    }
-}
-
-#[derive(Debug)]
-pub struct LTRIncluder;
-impl Includer<&[u8], &[u8]> for LTRIncluder {
-    fn includes(&self, mut left: &[u8], mut right: &[u8]) -> bool {
-        loop {
-            let (lchunk, lrest) = Split::split_once(left, &DELIMITER);
-            let lempty = lrest.is_empty();
-            if lchunk == DOUBLE_WILD {
-                if (lempty && !right.has_verbatim()) || (!lempty && self.includes(lrest, right)) {
-                    return true;
-                }
-                if right.has_direct_verbatim() {
-                    return false;
-                }
-                right = Split::split_once(right, &DELIMITER).1;
-                if right.is_empty() {
-                    return false;
-                }
-            } else {
-                let (rchunk, rrest) = Split::split_once(right, &DELIMITER);
-                if rchunk.is_empty()
-                    || rchunk == DOUBLE_WILD
-                    || !self.non_double_wild_chunk_includes(lchunk, rchunk)
-                {
-                    return false;
-                }
-                let rempty = rrest.is_empty();
-                if lempty {
-                    return rempty;
-                }
-                left = lrest;
-                right = rrest;
-            }
-        }
-    }
-}
-
-impl LTRIncluder {
-    fn non_double_wild_chunk_includes(&self, lchunk: &[u8], rchunk: &[u8]) -> bool {
-        if lchunk == rchunk {
-            true
-        } else if lchunk.has_direct_verbatim_non_empty() || rchunk.has_direct_verbatim_non_empty() {
-            false
-        } else if lchunk == b"*" {
-            true
-        } else if lchunk.contains(&b'$') {
-            let mut spleft = lchunk.splitter(STAR_DSL);
-            if let Some(rchunk) = rchunk.strip_prefix(spleft.next().unwrap()) {
-                if let Some(mut rchunk) = rchunk.strip_suffix(spleft.next_back().unwrap()) {
-                    for needle in spleft {
-                        let needle_len = needle.len();
-                        if let Some(position) =
-                            rchunk.windows(needle_len).position(|right| right == needle)
-                        {
-                            rchunk = &rchunk[position + needle_len..]
-                        } else {
-                            return false;
-                        }
-                    }
-                    true
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
-        } else {
-            false
-        }
     }
 }

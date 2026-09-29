@@ -20,22 +20,12 @@ use crate::{
     key_expr::{
         fuzzer,
         greedy::steps,
-        include::{Includer, LTRIncluder, DEFAULT_INCLUDER},
+        include::{Includer, DEFAULT_INCLUDER},
         intersect::*,
         keyexpr,
     },
     OwnedKeyExpr,
 };
-
-type BoxedIntersectors = Vec<Box<dyn for<'a> Intersector<&'a keyexpr, &'a keyexpr> + Send + Sync>>;
-
-lazy_static::lazy_static! {
-    // The reference implementations that `DEFAULT_INTERSECTOR` is checked against.
-    static ref INTERSECTORS: BoxedIntersectors =
-    vec![
-        Box::new(ClassicIntersector)
-    ];
-}
 
 fn intersect<'a, A: TryInto<&'a keyexpr>, B: TryInto<&'a keyexpr>>(l: A, r: B) -> bool
 where
@@ -44,13 +34,7 @@ where
 {
     let left = l.try_into().unwrap();
     let right = r.try_into().unwrap();
-    let response = DEFAULT_INTERSECTOR.intersect(left, right);
-    for intersector in INTERSECTORS.iter() {
-        if intersector.intersect(left, right) != response {
-            panic!("DEFAULT_INTERSECTOR ({}) and INTERSECTORS[{:?}] disagreed on intersection between `{}` and `{}`", response, INTERSECTORS.iter().map(|i| i.intersect(left, right)).collect::<Vec<_>>(), left.as_ref(), right.as_ref())
-        }
-    }
-    response
+    DEFAULT_INTERSECTOR.intersect(left, right)
 }
 
 #[test]
@@ -132,12 +116,7 @@ fn includes<
 ) -> bool {
     let left = l.try_into().unwrap();
     let right = r.try_into().unwrap();
-    let response = left.includes(right);
-    let reference = LTRIncluder.includes(left, right);
-    if response != reference {
-        panic!("DEFAULT_INCLUDER ({response}) and LTRIncluder ({reference}) disagreed on whether `{left}` includes `{right}`")
-    }
-    response
+    left.includes(right)
 }
 
 #[test]
@@ -203,14 +182,9 @@ fn inclusions() {
     assert!(includes("@a/@b/**", "@a/@b"));
 }
 
-/// Checks against the old matchers, and the properties that hold for any pair.
+/// Checks the properties that hold for any pair.
 fn check_pair(a: &keyexpr, b: &keyexpr) {
     let intersects = DEFAULT_INTERSECTOR.intersect(a, b);
-    assert_eq!(
-        intersects,
-        ClassicIntersector.intersect(a, b),
-        "intersect(`{a}`, `{b}`) disagrees with ClassicIntersector"
-    );
     assert_eq!(
         intersects,
         DEFAULT_INTERSECTOR.intersect(b, a),
@@ -218,11 +192,6 @@ fn check_pair(a: &keyexpr, b: &keyexpr) {
     );
     for (l, r) in [(a, b), (b, a)] {
         let includes = DEFAULT_INCLUDER.includes(l, r);
-        assert_eq!(
-            includes,
-            LTRIncluder.includes(l, r),
-            "includes(`{l}`, `{r}`) disagrees with LTRIncluder"
-        );
         assert!(
             !includes || intersects,
             "`{l}` includes `{r}` but they don't intersect"
@@ -428,7 +397,6 @@ fn edge_cases() {
 }
 
 // Checked key expressions can't have a lone `$`, but the byte-level traits take any bytes.
-// The old matchers panic on some of these, so the expected results are listed here.
 #[test]
 fn lone_dollar() {
     use crate::key_expr::{greedy::GreedyIntersector, include::GreedyIncluder};
