@@ -56,6 +56,10 @@ test-case = { workspace = true }
 harness = false
 name = "keyexpr_tree"
 
+[[bench]]
+harness = false
+name = "keyexpr_match"
+
 # NOTE: for the above reason, we need to explicitly ignore getrandom in the CI because it's an indirect dependency which is not used directly by zenoh.
 [package.metadata.cargo-machete]
 ignored = ["getrandom"]
