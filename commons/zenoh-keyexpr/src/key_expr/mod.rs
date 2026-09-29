@@ -25,6 +25,8 @@ pub use owned::{OwnedKeyExpr, OwnedNonWildKeyExpr};
 pub(crate) mod borrowed;
 pub use borrowed::*;
 
+mod greedy;
+
 /// Used to implement and expose the tools to implement canonization of Key Expressions for string-like types.
 /// The average user doesn't need to bother with it.
 pub mod canon;

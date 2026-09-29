@@ -18,7 +18,9 @@ use crate::DELIMITER;
 mod classical;
 pub use classical::ClassicIntersector;
 
-pub const DEFAULT_INTERSECTOR: ClassicIntersector = ClassicIntersector;
+pub use super::greedy::GreedyIntersector;
+
+pub const DEFAULT_INTERSECTOR: GreedyIntersector = GreedyIntersector;
 
 /// The trait used to implement key expression intersectors.
 ///
@@ -93,8 +95,10 @@ impl MayHaveVerbatim for [u8] {
         matches!(self, [b'@', ..])
     }
     fn has_verbatim(&self) -> bool {
-        self.split(|c| *c == DELIMITER)
-            .any(MayHaveVerbatim::has_direct_verbatim)
+        self.contains(&b'@')
+            && self
+                .split(|c| *c == DELIMITER)
+                .any(MayHaveVerbatim::has_direct_verbatim)
     }
     fn has_direct_verbatim_non_empty(&self) -> bool {
         self.first() == Some(&b'@')

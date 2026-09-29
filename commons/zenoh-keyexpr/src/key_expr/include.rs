@@ -13,7 +13,9 @@
 //
 use super::{intersect::MayHaveVerbatim, keyexpr, utils::Split, DELIMITER, DOUBLE_WILD, STAR_DSL};
 
-pub const DEFAULT_INCLUDER: LTRIncluder = LTRIncluder;
+pub use super::greedy::GreedyIncluder;
+
+pub const DEFAULT_INCLUDER: GreedyIncluder = GreedyIncluder;
 
 pub trait Includer<Left, Right> {
     /// Returns `true` if the set defined by `left` includes the one defined by `right`
