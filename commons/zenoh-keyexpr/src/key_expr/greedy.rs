@@ -192,27 +192,29 @@ fn find_segment<'a>(
     mut y: &'a [u8],
     matches: &impl Fn(&[u8], &[u8]) -> bool,
 ) -> Option<&'a [u8]> {
-    loop {
-        let (mut s, mut t) = (segment, y);
-        loop {
-            if s.is_empty() {
-                return Some(t);
+    let (first, segment_rest) = segment.first_chunk_and_rest();
+    while !y.is_empty() {
+        let (yc, y_rest) = y.first_chunk_and_rest();
+        if matches(first, yc) {
+            let (mut s, mut t) = (segment_rest, y_rest);
+            loop {
+                if s.is_empty() {
+                    return Some(t);
+                }
+                if t.is_empty() {
+                    return None;
+                }
+                let (sc, s_rest) = s.first_chunk_and_rest();
+                let (tc, t_rest) = t.first_chunk_and_rest();
+                if !matches(sc, tc) {
+                    break;
+                }
+                (s, t) = (s_rest, t_rest);
             }
-            if t.is_empty() {
-                return None;
-            }
-            let (sc, s_rest) = s.first_chunk_and_rest();
-            let (tc, t_rest) = t.first_chunk_and_rest();
-            if !matches(sc, tc) {
-                break;
-            }
-            (s, t) = (s_rest, t_rest);
         }
-        y = y.first_chunk_and_rest().1;
-        if y.is_empty() {
-            return None;
-        }
+        y = y_rest;
     }
+    None
 }
 
 /// [`find_segment`] for a literal segment, using substring search. `padded` is `/S/`.
@@ -295,6 +297,9 @@ fn chunk_includes(l: &[u8], r: &[u8]) -> bool {
     }
     if l == [SINGLE_WILD] {
         return true;
+    }
+    if !l.contains(&b'$') {
+        return false;
     }
     // `l` is `P0$*...$*Pk`. `$*` in `r` is compared as plain text.
     let mut pieces = l.splitter(STAR_DSL);
