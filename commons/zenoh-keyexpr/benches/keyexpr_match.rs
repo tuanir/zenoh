@@ -263,6 +263,39 @@ fn worst_cases(c: &mut Criterion) {
     g.finish();
 }
 
+/// Long literal chunks that differ late, as in real key expressions.
+/// `n` is the number of chunks a `**` segment is slid across.
+fn long_chunk_inputs() -> Vec<(String, String, String)> {
+    let noise = |n: usize| vec!["sensor_humidity_percentage"; n].join("/");
+    let mut inputs = vec![(
+        "realistic".to_string(),
+        "fleet/*/telemetry/sensor_temperature_celsius".to_string(),
+        "fleet/robot_0042/telemetry/sensor_humidity_percentage".to_string(),
+    )];
+    for n in [4, 16, 64] {
+        inputs.push((
+            format!("scan_seg_star/{n}"),
+            "**/sensor_temperature_celsius/*/**".into(),
+            format!("{}/sensor_temperature_celsius/v", noise(n)),
+        ));
+    }
+    inputs
+}
+
+fn long_chunks(c: &mut Criterion) {
+    let mut g = c.benchmark_group("long_chunks");
+    for (name, l, r) in long_chunk_inputs() {
+        let (l, r) = (OwnedKeyExpr::new(l).unwrap(), OwnedKeyExpr::new(r).unwrap());
+        g.bench_function(format!("{name}/intersect"), |b| {
+            b.iter(|| black_box(&*l).intersects(black_box(&*r)))
+        });
+        g.bench_function(format!("{name}/include"), |b| {
+            b.iter(|| black_box(&*l).includes(black_box(&*r)))
+        });
+    }
+    g.finish();
+}
+
 fn config() -> Criterion {
     Criterion::default()
         .warm_up_time(Duration::from_millis(500))
@@ -272,6 +305,6 @@ fn config() -> Criterion {
 criterion_group! {
     name = benches;
     config = config();
-    targets = test_cases, single_chunks, worst_cases
+    targets = test_cases, single_chunks, worst_cases, long_chunks
 }
 criterion_main!(benches);
