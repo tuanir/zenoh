@@ -53,42 +53,63 @@ const DOUBLE_WILD_PREFIX: &[u8] = b"**/";
 const DOUBLE_WILD_SUFFIX: &[u8] = b"/**";
 const DOUBLE_WILD_INFIX: &[u8] = b"/**/";
 
-#[inline(always)]
-fn first_chunk(s: &[u8]) -> (&[u8], &[u8]) {
-    Split::split_once(s, &DELIMITER)
+trait KeyBytes {
+    fn first_chunk_and_rest(&self) -> (&Self, &Self);
+    fn rest_and_last_chunk(&self) -> (&Self, &Self);
+    fn no_empty_chunk(&self) -> bool;
+    fn is_wrapped_in_double_wild(&self) -> bool;
+    fn has_double_wild(&self) -> bool;
+    fn is_verbatim(&self) -> bool;
+    fn has_verbatim(&self) -> bool;
+    /// `(before, chunk, after)`
+    fn next_verbatim(&self) -> Option<(&Self, &Self, &Self)>;
+    /// `$*M$*` -> `M`
+    fn strip_outer_stars(&self) -> Option<&Self>;
 }
 
-#[inline(always)]
-fn last_chunk(s: &[u8]) -> (&[u8], &[u8]) {
-    let (init, last) = Split::try_rsplit_once(s, &DELIMITER);
-    (init.unwrap_or(b""), last)
-}
+impl KeyBytes for [u8] {
+    #[inline(always)]
+    fn first_chunk_and_rest(&self) -> (&[u8], &[u8]) {
+        Split::split_once(self, &DELIMITER)
+    }
 
-fn no_empty_chunk(s: &[u8]) -> bool {
-    s.is_empty() || !s.splitter(&DELIMITER).any(<[u8]>::is_empty)
-}
+    #[inline(always)]
+    fn rest_and_last_chunk(&self) -> (&[u8], &[u8]) {
+        let (init, last) = Split::try_rsplit_once(self, &DELIMITER);
+        (init.unwrap_or(b""), last)
+    }
 
-fn is_wrapped_in_double_wild(s: &[u8]) -> bool {
-    first_chunk(s).0 == DOUBLE_WILD && last_chunk(s).1 == DOUBLE_WILD
-}
+    fn no_empty_chunk(&self) -> bool {
+        self.is_empty() || !self.splitter(&DELIMITER).any(<[u8]>::is_empty)
+    }
 
-fn has_double_wild(s: &[u8]) -> bool {
-    s.contains(&SINGLE_WILD) && s.splitter(&DELIMITER).any(|c| c == DOUBLE_WILD)
-}
+    fn is_wrapped_in_double_wild(&self) -> bool {
+        self.first_chunk_and_rest().0 == DOUBLE_WILD && self.rest_and_last_chunk().1 == DOUBLE_WILD
+    }
 
-fn is_verbatim(chunk: &[u8]) -> bool {
-    chunk.first() == Some(&b'@')
-}
+    fn has_double_wild(&self) -> bool {
+        self.contains(&SINGLE_WILD) && self.splitter(&DELIMITER).any(|c| c == DOUBLE_WILD)
+    }
 
-fn has_verbatim(s: &[u8]) -> bool {
-    s.contains(&b'@') && s.splitter(&DELIMITER).any(is_verbatim)
-}
+    fn is_verbatim(&self) -> bool {
+        self.first() == Some(&b'@')
+    }
 
-fn next_verbatim(s: &[u8]) -> Option<(&[u8], &[u8], &[u8])> {
-    let start = (0..s.len()).find(|&i| s[i] == b'@' && (i == 0 || s[i - 1] == DELIMITER))?;
-    let before = s[..start].strip_suffix(&[DELIMITER]).unwrap_or(b"");
-    let (chunk, after) = first_chunk(&s[start..]);
-    Some((before, chunk, after))
+    fn has_verbatim(&self) -> bool {
+        self.contains(&b'@') && self.splitter(&DELIMITER).any(KeyBytes::is_verbatim)
+    }
+
+    fn next_verbatim(&self) -> Option<(&[u8], &[u8], &[u8])> {
+        let start =
+            (0..self.len()).find(|&i| self[i] == b'@' && (i == 0 || self[i - 1] == DELIMITER))?;
+        let before = self[..start].strip_suffix(&[DELIMITER]).unwrap_or(b"");
+        let (chunk, after) = self[start..].first_chunk_and_rest();
+        Some((before, chunk, after))
+    }
+
+    fn strip_outer_stars(&self) -> Option<&[u8]> {
+        self.strip_prefix(STAR_DSL)?.strip_suffix(STAR_DSL)
+    }
 }
 
 // Below this length a naive search is faster than memmem.
@@ -121,7 +142,7 @@ fn chunk_intersect<const DSL: bool>(l: &[u8], r: &[u8]) -> bool {
     step(1);
     match (l, r) {
         _ if l == r => true,
-        _ if is_verbatim(l) || is_verbatim(r) => false,
+        _ if l.is_verbatim() || r.is_verbatim() => false,
         ([SINGLE_WILD], _) | (_, [SINGLE_WILD]) => true,
         _ if DSL && (l.contains(&b'$') || r.contains(&b'$')) => dsl_chunk_intersect(l, r),
         _ => false,
@@ -130,7 +151,7 @@ fn chunk_intersect<const DSL: bool>(l: &[u8], r: &[u8]) -> bool {
 
 type SplitEnd<'a> = fn(&'a [u8]) -> Option<(&'a u8, &'a [u8])>;
 
-fn strip_common<'a>(
+fn strip_common_bytes<'a>(
     mut l: &'a [u8],
     mut r: &'a [u8],
     stop: u8,
@@ -149,13 +170,9 @@ fn strip_common<'a>(
     Some((l, r))
 }
 
-fn between_stars(s: &[u8]) -> Option<&[u8]> {
-    s.strip_prefix(STAR_DSL)?.strip_suffix(STAR_DSL)
-}
-
 fn dsl_chunk_intersect(l: &[u8], r: &[u8]) -> bool {
-    let Some((l, r)) = strip_common(l, r, b'$', <[u8]>::split_first)
-        .and_then(|(l, r)| strip_common(l, r, b'*', <[u8]>::split_last))
+    let Some((l, r)) = strip_common_bytes(l, r, b'$', <[u8]>::split_first)
+        .and_then(|(l, r)| strip_common_bytes(l, r, b'*', <[u8]>::split_last))
     else {
         return false;
     };
@@ -163,7 +180,7 @@ fn dsl_chunk_intersect(l: &[u8], r: &[u8]) -> bool {
         return matches!(l, b"" | b"$*") && matches!(r, b"" | b"$*");
     }
     // one side starts with `$*`, one ends with `$*`
-    match (between_stars(l), between_stars(r)) {
+    match (l.strip_outer_stars(), r.strip_outer_stars()) {
         (Some(m), _) => r.contains(&b'$') || pieces_in_order(m, r),
         (None, Some(m)) => l.contains(&b'$') || pieces_in_order(m, l),
         (None, None) => true,
@@ -175,7 +192,7 @@ fn chunk_includes(l: &[u8], r: &[u8]) -> bool {
     if l == r {
         return true;
     }
-    if is_verbatim(l) || is_verbatim(r) {
+    if l.is_verbatim() || r.is_verbatim() {
         return false;
     }
     if l == [SINGLE_WILD] {
@@ -204,7 +221,7 @@ fn chunk_includes(l: &[u8], r: &[u8]) -> bool {
 /// parts in between.
 fn by_verbatim(mut l: &[u8], mut r: &[u8], segment: impl Fn(&[u8], &[u8]) -> bool) -> bool {
     loop {
-        match (next_verbatim(l), next_verbatim(r)) {
+        match (l.next_verbatim(), r.next_verbatim()) {
             (None, None) => return segment(l, r),
             (Some((l_before, lv, l_after)), Some((r_before, rv, r_after))) => {
                 if lv != rv || !segment(l_before, r_before) {
@@ -218,7 +235,7 @@ fn by_verbatim(mut l: &[u8], mut r: &[u8], segment: impl Fn(&[u8], &[u8]) -> boo
 }
 
 /// Earliest match of `segment` in `y`. Returns the rest of `y`.
-fn place<'a>(
+fn find_segment<'a>(
     segment: &[u8],
     mut y: &'a [u8],
     matches: &impl Fn(&[u8], &[u8]) -> bool,
@@ -232,22 +249,22 @@ fn place<'a>(
             if t.is_empty() {
                 return None;
             }
-            let (sc, s_rest) = first_chunk(s);
-            let (tc, t_rest) = first_chunk(t);
+            let (sc, s_rest) = s.first_chunk_and_rest();
+            let (tc, t_rest) = t.first_chunk_and_rest();
             if !matches(sc, tc) {
                 break;
             }
             (s, t) = (s_rest, t_rest);
         }
-        y = first_chunk(y).1;
+        y = y.first_chunk_and_rest().1;
         if y.is_empty() {
             return None;
         }
     }
 }
 
-/// [`place`] for a literal segment, using substring search. `padded` is `/S/`.
-fn place_literal<'a>(padded: &[u8], y: &'a [u8]) -> Option<&'a [u8]> {
+/// [`find_segment`] for a literal segment, using substring search. `padded` is `/S/`.
+fn find_literal_segment<'a>(padded: &[u8], y: &'a [u8]) -> Option<&'a [u8]> {
     let segment = &padded[1..padded.len() - 1];
     step(segment.len());
     if let Some(rest) = y.strip_prefix(segment) {
@@ -280,9 +297,9 @@ fn greedy(x: &[u8], mut y: &[u8], exact: bool, matches: impl Fn(&[u8], &[u8]) ->
     let mut start = DOUBLE_WILD_PREFIX.len();
     for segment in segments.splitter(DOUBLE_WILD_INFIX) {
         let placed = if exact && !segment.contains(&SINGLE_WILD) {
-            place_literal(&x[start - 1..start + segment.len() + 1], y)
+            find_literal_segment(&x[start - 1..start + segment.len() + 1], y)
         } else {
-            place(segment, y, &matches)
+            find_segment(segment, y, &matches)
         };
         match placed {
             Some(after) => y = after,
@@ -302,7 +319,7 @@ fn strip_ends<'a>(
 ) -> Option<(&'a [u8], &'a [u8])> {
     // prefix
     while !l.is_empty() && !r.is_empty() {
-        let ((lc, l_rest), (rc, r_rest)) = (first_chunk(l), first_chunk(r));
+        let ((lc, l_rest), (rc, r_rest)) = (l.first_chunk_and_rest(), r.first_chunk_and_rest());
         if lc == DOUBLE_WILD || rc == DOUBLE_WILD {
             break;
         }
@@ -314,7 +331,7 @@ fn strip_ends<'a>(
 
     // suffix
     while !l.is_empty() && !r.is_empty() {
-        let ((l_init, lc), (r_init, rc)) = (last_chunk(l), last_chunk(r));
+        let ((l_init, lc), (r_init, rc)) = (l.rest_and_last_chunk(), r.rest_and_last_chunk());
         if lc == DOUBLE_WILD || rc == DOUBLE_WILD {
             break;
         }
@@ -328,7 +345,7 @@ fn strip_ends<'a>(
 
 fn segment_intersect<const DSL: bool, const VERBATIM: bool>(l: &[u8], r: &[u8]) -> bool {
     if let (DOUBLE_WILD, x) | (x, DOUBLE_WILD) = (l, r) {
-        return !VERBATIM || !has_verbatim(x);
+        return !VERBATIM || !x.has_verbatim();
     }
     let Some((l, r)) = strip_ends(l, r, chunk_intersect::<DSL>) else {
         return false;
@@ -340,8 +357,8 @@ fn segment_intersect<const DSL: bool, const VERBATIM: bool>(l: &[u8], r: &[u8]) 
             by_verbatim(l, r, segment_intersect::<DSL, false>)
         }
         (DOUBLE_WILD, _) | (_, DOUBLE_WILD) => true,
-        _ if is_wrapped_in_double_wild(l) => wrapped_intersect::<DSL>(l, r),
-        _ if is_wrapped_in_double_wild(r) => wrapped_intersect::<DSL>(r, l),
+        _ if l.is_wrapped_in_double_wild() => wrapped_intersect::<DSL>(l, r),
+        _ if r.is_wrapped_in_double_wild() => wrapped_intersect::<DSL>(r, l),
         _ => true,
     }
 }
@@ -350,12 +367,12 @@ fn segment_intersect<const DSL: bool, const VERBATIM: bool>(l: &[u8], r: &[u8]) 
 fn wrapped_intersect<const DSL: bool>(x: &[u8], y: &[u8]) -> bool {
     // a `**` in `y` can absorb `M`
     let exact = !y.contains(&SINGLE_WILD);
-    (!exact && has_double_wild(y)) || greedy(x, y, exact, chunk_intersect::<DSL>)
+    (!exact && y.has_double_wild()) || greedy(x, y, exact, chunk_intersect::<DSL>)
 }
 
 fn segment_includes<const VERBATIM: bool>(l: &[u8], r: &[u8]) -> bool {
     if l == DOUBLE_WILD {
-        return !VERBATIM || !has_verbatim(r);
+        return !VERBATIM || !r.has_verbatim();
     }
     let Some((l, r)) = strip_ends(l, r, chunk_includes) else {
         return false;
@@ -364,7 +381,7 @@ fn segment_includes<const VERBATIM: bool>(l: &[u8], r: &[u8]) -> bool {
         (b"" | DOUBLE_WILD, b"") => true,
         (b"", _) | (_, b"") => false,
         // only a `**` in `l` can cover a `**` in `r`
-        _ if !is_wrapped_in_double_wild(l) => false,
+        _ if !l.is_wrapped_in_double_wild() => false,
         _ if VERBATIM && (l.contains(&b'@') || r.contains(&b'@')) => {
             by_verbatim(l, r, segment_includes::<false>)
         }
@@ -376,12 +393,12 @@ fn segment_includes<const VERBATIM: bool>(l: &[u8], r: &[u8]) -> bool {
 }
 
 pub fn intersect<const DSL: bool>(l: &[u8], r: &[u8]) -> bool {
-    debug_assert!(no_empty_chunk(l) && no_empty_chunk(r));
+    debug_assert!(l.no_empty_chunk() && r.no_empty_chunk());
     segment_intersect::<DSL, true>(l, r)
 }
 
 pub fn includes(l: &[u8], r: &[u8]) -> bool {
-    debug_assert!(no_empty_chunk(l) && no_empty_chunk(r));
+    debug_assert!(l.no_empty_chunk() && r.no_empty_chunk());
     segment_includes::<true>(l, r)
 }
 
