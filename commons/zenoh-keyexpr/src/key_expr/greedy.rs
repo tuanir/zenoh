@@ -112,7 +112,7 @@ impl KeyBytes for [u8] {
     }
 }
 
-// Below this length a naive search is faster than memmem.
+// Up to this length a naive search is faster than memmem.
 const SHORT_TEXT: usize = 8;
 
 /// Whether the `$*`-separated pieces of `pattern` occur in `text` in order, without overlap.
@@ -284,14 +284,14 @@ fn find_literal_segment<'a>(padded: &[u8], y: &'a [u8]) -> Option<&'a [u8]> {
 }
 
 /// `x` is `**/S1/**/.../Sk/**`. The earliest fit of each segment leaves the most room for the
-/// next ones, so there's no need to backtrack. With `exact`, literal chunks of `x` only match
-/// identical chunks of `y`.
+/// next ones, so there's no need to backtrack. Set `exact` only if literal chunks of `x` can match
+/// nothing but identical chunks of `y`; that allows a substring search.
 fn greedy(x: &[u8], mut y: &[u8], exact: bool, matches: impl Fn(&[u8], &[u8]) -> bool) -> bool {
     let Some(segments) = x
         .strip_prefix(DOUBLE_WILD_PREFIX)
         .and_then(|x| x.strip_suffix(DOUBLE_WILD_SUFFIX))
     else {
-        return true; // `x` is `**/**`
+        return true; // `x` is `**`
     };
     // offset of `segment` in `x`
     let mut start = DOUBLE_WILD_PREFIX.len();
@@ -365,8 +365,8 @@ fn segment_intersect<const DSL: bool, const VERBATIM: bool>(l: &[u8], r: &[u8]) 
 
 /// `x` is `**/M/**`. No verbatim chunks on either side.
 fn wrapped_intersect<const DSL: bool>(x: &[u8], y: &[u8]) -> bool {
-    // a `**` in `y` can absorb `M`
     let exact = !y.contains(&SINGLE_WILD);
+    // a `**` in `y` can absorb `M`
     (!exact && y.has_double_wild()) || greedy(x, y, exact, chunk_intersect::<DSL>)
 }
 
