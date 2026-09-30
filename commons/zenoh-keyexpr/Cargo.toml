@@ -27,11 +27,12 @@ version = { workspace = true }
 default = ["std"]
 internal = []
 js = ["getrandom/js"]
-std = ["dep:schemars", "zenoh-result/std"]
+std = ["dep:schemars", "memchr/std", "zenoh-result/std"]
 unstable = []
 
 [dependencies]
 keyed-set = { workspace = true }
+memchr = { workspace = true }
 rand = { workspace = true, features = ["alloc", "getrandom"] }
 schemars = { workspace = true, optional = true }
 serde = { workspace = true, features = ["alloc"] }

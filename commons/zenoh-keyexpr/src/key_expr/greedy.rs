@@ -91,33 +91,22 @@ fn next_verbatim(s: &[u8]) -> Option<(&[u8], &[u8], &[u8])> {
     Some((before, chunk, after))
 }
 
-// Below this length a naive search is faster than `str::find`.
-const SHORT_TEXT: usize = 32;
+// Below this length a naive search is faster than memmem.
+const SHORT_TEXT: usize = 8;
 
 /// Whether the `$*`-separated pieces of `pattern` occur in `text` in order, without overlap.
-/// `str::find` needs UTF-8, other bytes fall back to the naive search.
-fn pieces_in_order(pattern: &[u8], text: &[u8]) -> bool {
-    if text.len() > SHORT_TEXT {
-        if let (Ok(pattern), Ok(mut text)) =
-            (core::str::from_utf8(pattern), core::str::from_utf8(text))
-        {
-            for piece in pattern.split("$*") {
-                let Some(i) = text.find(piece) else {
-                    step(text.len());
-                    return false;
-                };
-                step(i + piece.len());
-                text = &text[i + piece.len()..];
-            }
-            return true;
-        }
-    }
-    let mut text = text;
+fn pieces_in_order(pattern: &[u8], mut text: &[u8]) -> bool {
+    let long = text.len() > SHORT_TEXT;
     for piece in pattern.splitter(STAR_DSL) {
         if piece.is_empty() {
             continue;
         }
-        let Some(i) = text.windows(piece.len()).position(|w| w == piece) else {
+        let found = if long {
+            memchr::memmem::find(text, piece)
+        } else {
+            text.windows(piece.len()).position(|w| w == piece)
+        };
+        let Some(i) = found else {
             step(text.len());
             return false;
         };
@@ -257,20 +246,49 @@ fn place<'a>(
     }
 }
 
+/// [`place`] for a literal segment, using substring search. `padded` is `/S/`.
+fn place_literal<'a>(padded: &[u8], y: &'a [u8]) -> Option<&'a [u8]> {
+    let segment = &padded[1..padded.len() - 1];
+    step(segment.len());
+    if let Some(rest) = y.strip_prefix(segment) {
+        match rest.split_first() {
+            None => return Some(b""),
+            Some((&DELIMITER, rest)) => return Some(rest),
+            _ => {}
+        }
+    }
+    let Some(i) = memchr::memmem::find(y, padded) else {
+        step(y.len());
+        // no trailing `/` at the end of `y`
+        return y.ends_with(&padded[..padded.len() - 1]).then_some(b"");
+    };
+    step(i + padded.len());
+    Some(&y[i + padded.len()..])
+}
+
 /// `x` is `**/S1/**/.../Sk/**`. The earliest fit of each segment leaves the most room for the
-/// next ones, so there's no need to backtrack.
-fn greedy(x: &[u8], mut y: &[u8], matches: impl Fn(&[u8], &[u8]) -> bool) -> bool {
+/// next ones, so there's no need to backtrack. With `exact`, literal chunks of `x` only match
+/// identical chunks of `y`.
+fn greedy(x: &[u8], mut y: &[u8], exact: bool, matches: impl Fn(&[u8], &[u8]) -> bool) -> bool {
     let Some(segments) = x
         .strip_prefix(DOUBLE_WILD_PREFIX)
         .and_then(|x| x.strip_suffix(DOUBLE_WILD_SUFFIX))
     else {
         return true; // `x` is `**/**`
     };
+    // offset of `segment` in `x`
+    let mut start = DOUBLE_WILD_PREFIX.len();
     for segment in segments.splitter(DOUBLE_WILD_INFIX) {
-        match place(segment, y, &matches) {
+        let placed = if exact && !segment.contains(&SINGLE_WILD) {
+            place_literal(&x[start - 1..start + segment.len() + 1], y)
+        } else {
+            place(segment, y, &matches)
+        };
+        match placed {
             Some(after) => y = after,
             None => return false,
         }
+        start += segment.len() + DOUBLE_WILD_INFIX.len();
     }
     true
 }
@@ -331,7 +349,8 @@ fn segment_intersect<const DSL: bool, const VERBATIM: bool>(l: &[u8], r: &[u8]) 
 /// `x` is `**/M/**`. No verbatim chunks on either side.
 fn wrapped_intersect<const DSL: bool>(x: &[u8], y: &[u8]) -> bool {
     // a `**` in `y` can absorb `M`
-    has_double_wild(y) || greedy(x, y, chunk_intersect::<DSL>)
+    let exact = !y.contains(&SINGLE_WILD);
+    (!exact && has_double_wild(y)) || greedy(x, y, exact, chunk_intersect::<DSL>)
 }
 
 fn segment_includes<const VERBATIM: bool>(l: &[u8], r: &[u8]) -> bool {
@@ -350,7 +369,9 @@ fn segment_includes<const VERBATIM: bool>(l: &[u8], r: &[u8]) -> bool {
             by_verbatim(l, r, segment_includes::<false>)
         }
         (DOUBLE_WILD, _) => true,
-        _ => greedy(l, r, |lc, rc| rc != DOUBLE_WILD && chunk_includes(lc, rc)),
+        _ => greedy(l, r, true, |lc, rc| {
+            rc != DOUBLE_WILD && chunk_includes(lc, rc)
+        }),
     }
 }
 

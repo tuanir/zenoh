@@ -363,6 +363,16 @@ fn edge_cases() {
         ("**/a/**/b", "b/**/a", false, false, false),
         ("**/a/**", "b", false, false, false),
         ("**/a/**", "x/b/**/c", true, false, false),
+        // literal segments only match on chunk boundaries
+        ("**/a/b/**", "xa/b", false, false, false),
+        ("**/a/b/**", "a/bx", false, false, false),
+        ("**/a/b/**", "x/a/b/y", true, true, false),
+        ("**/a/b/**", "xa/b/a/b", true, true, false),
+        ("**/a/a/**", "ba/a/a", true, true, false),
+        ("**/a/b/**/c/**", "a/b/c", true, true, false),
+        ("**/a/b/**/b/c/**", "a/b/c", false, false, false),
+        ("**/a/b/**", "x/a/b/*", true, true, false),
+        ("**/a/b/**", "a/*/a/b", true, true, false),
         // verbatim chunks
         ("**/@a/**", "@a", true, true, false),
         ("**", "@a", false, false, false),
@@ -469,6 +479,8 @@ fn linear_complexity() {
         ),
         ("a/b/**".to_owned(), format!("a/b/{}", x(1000))),
         ("**/a".to_owned(), format!("{}/a", x(1000))),
+        // zenoh-pico's worst case
+        ("**/x/x/x/b/**".to_owned(), format!("{}/b", x(1000))),
         (format!("a/{}/**", x(500)), format!("**/{}/b", x(500))),
         (
             format!("**/{}/**", x(500)),
@@ -491,8 +503,8 @@ fn quadratic_complexity() {
     let a = |n: usize| vec!["a"; n].join("/");
     let stars = |n: usize| vec!["*"; n].join("/");
     let cases = [
-        // zenoh-pico's worst case
-        ("**/a/a/a/b/**".to_owned(), format!("{}/b", a(2000))),
+        // zenoh-pico's worst case, with a `*` so substring search can't be used
+        ("**/a/a/a/b/**".to_owned(), format!("*/{}/b", a(2000))),
         // a segment of more than 64 chunks, with `*` chunks
         (format!("**/a/{}/b/**", stars(70)), a(1000)),
         (format!("**/a/{}/b/**", stars(70)), format!("{}/b", a(1000))),
