@@ -382,7 +382,7 @@ pub fn intersect<const DSL: bool>(l: &[u8], r: &[u8]) -> bool {
 
 pub fn includes(l: &[u8], r: &[u8]) -> bool {
     debug_assert!(no_empty_chunk(l) && no_empty_chunk(r));
-    l == r || segment_includes::<true>(l, r)
+    segment_includes::<true>(l, r)
 }
 
 /// [`Intersector`] that never backtracks. O(n*m) in the worst case.

@@ -201,6 +201,10 @@ fn check_pair(a: &keyexpr, b: &keyexpr) {
         DEFAULT_INCLUDER.includes(a, a),
         "`{a}` doesn't include itself"
     );
+    assert!(
+        DEFAULT_INCLUDER.includes(a.as_bytes(), a.as_bytes()),
+        "`{a}` doesn't include itself without the equality shortcut"
+    );
 }
 
 // Also produces `@` chunks with `$*`, and plain chunks with an `@` inside.
