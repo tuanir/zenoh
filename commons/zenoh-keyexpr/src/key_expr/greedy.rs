@@ -307,9 +307,8 @@ fn chunk_includes(l: &[u8], r: &[u8]) -> bool {
     let Some(suffix) = pieces.next_back() else {
         return false; // `l` has no `$*`
     };
-    let middle = l
-        .get(prefix.len() + STAR_DSL.len()..l.len() - suffix.len() - STAR_DSL.len())
-        .unwrap_or(b"");
+    // still wrapped in `$*`, which `pieces_in_order` skips as empty pieces
+    let middle = &l[prefix.len()..l.len() - suffix.len()];
     step(prefix.len() + suffix.len());
     let Some(r) = r.strip_prefix(prefix) else {
         return false;
@@ -388,12 +387,12 @@ impl KeyBytes for [u8] {
     }
 
     fn has_verbatim(&self) -> bool {
-        self.contains(&b'@') && self.splitter(&DELIMITER).any(KeyBytes::is_verbatim)
+        self.next_verbatim().is_some()
     }
 
     fn next_verbatim(&self) -> Option<(&[u8], &[u8], &[u8])> {
         let start =
-            (0..self.len()).find(|&i| self[i] == b'@' && (i == 0 || self[i - 1] == DELIMITER))?;
+            memchr::memchr_iter(b'@', self).find(|&i| i == 0 || self[i - 1] == DELIMITER)?;
         let before = self[..start].strip_suffix(&[DELIMITER]).unwrap_or(b"");
         let (chunk, after) = self[start..].first_chunk_and_rest();
         Some((before, chunk, after))
