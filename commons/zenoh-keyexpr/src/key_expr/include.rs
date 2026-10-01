@@ -11,9 +11,9 @@
 // Contributors:
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
-use super::keyexpr;
 
 pub use super::greedy::GreedyIncluder;
+use super::keyexpr;
 
 pub const DEFAULT_INCLUDER: GreedyIncluder = GreedyIncluder;
 

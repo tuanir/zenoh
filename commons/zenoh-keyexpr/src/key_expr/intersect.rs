@@ -12,9 +12,8 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 
-use super::keyexpr;
-
 pub use super::greedy::GreedyIntersector;
+use super::keyexpr;
 
 pub const DEFAULT_INTERSECTOR: GreedyIntersector = GreedyIntersector;
 
